@@ -31,7 +31,7 @@ class ControlBoard():
         # Internal event used to signal an emergency stop / kill
         self._kill_event = threading.Event()
         # Lock to serialize writes to the serial port and avoid interleaved bytes
-        self._write_lock = threading.Lock()
+        self._write_lock = threading.RLock()
         # Lock to protect concurrent access to positions
         self._positions_lock = threading.Lock()
         # Optional raw serial logging handle (opened by enable_raw_logging)
@@ -388,42 +388,57 @@ class ControlBoard():
         return command_id
         
         
-    def move_axis(self, axis: str, distance_mm: float, feedrate_mm_per_minute: int = 2000, relative: bool = False, finish_move: bool = True):
-        """ Takes in a list of axes, distances and speeds to move the gantry"""
+    def move_axis(self, axis: str, distance_mm: float,
+                  feedrate_mm_per_minute: int = 2000,
+                  relative: bool = False,
+                  finish_move: bool = True):
+    
+        """Takes in an axis, distance and speed to move the gantry"""
+    
         if axis not in self.positions.keys():
             raise ValueError(f"Invalid axis {axis}")
-  
+    
         if relative and distance_mm == 0:
             return
-
+    
         # Abort early if an emergency kill has been requested
         if getattr(self, '_kill_event', None) is not None and self._kill_event.is_set():
             self.logger.warning("Move aborted: control board in kill state")
             raise RuntimeError("ControlBoard is in kill state")
-        # Ensure positioning mode is explicitly set for this move so the
-        # firmware interprets the coordinate correctly.
-        if relative:
-            self.send_message("G91", require_lock=True)
-        else:
-            self.send_message("G90", require_lock=True)
-        sleep(0.1)
-        # dont go crazy with these axes,
+    
+        # Don't go crazy with these axes
         if (axis == "Z" or axis == "A" or axis == "B") and feedrate_mm_per_minute == 2000:
             feedrate_mm_per_minute = 600
-            
-        self.send_message(f"G0 {axis}{distance_mm} F{feedrate_mm_per_minute}", require_lock=True)
-        sleep(0.1)
-            
-        
-        if finish_move:
-
-            self.finish_moves()
+    
+        # Keep the ENTIRE movement sequence under one lock.
+        # RLock allows send_message() to acquire this same lock again.
+        with self._write_lock:
+    
+            # Set positioning mode
+            if relative:
+                self.send_message("G91", require_lock=True)
+            else:
+                self.send_message("G90", require_lock=True)
+    
             sleep(0.1)
-        # If we issued a relative move, revert to absolute positioning to
-        # keep behavior consistent with previous code.
-        if relative:
-            self.send_message("G90", require_lock=True)
+    
+            # Perform movement
+            self.send_message(
+                f"G0 {axis}{distance_mm} F{feedrate_mm_per_minute}",
+                require_lock=True
+            )
+    
             sleep(0.1)
+    
+            # Wait for movement to complete
+            if finish_move:
+                self.finish_moves()
+                sleep(0.1)
+    
+            # Return to absolute positioning
+            if relative:
+                self.send_message("G90", require_lock=True)
+                sleep(0.1)
 
     def finish_moves(self):
 
@@ -431,10 +446,15 @@ class ControlBoard():
         """Waits for the move to finish"""
         if not self.is_connected():
             self.logger.error("Serial is not connected")
-            raise RuntimeError("Control board is not connected")
+            if require_lock:
+                raise RuntimeError("Control board is not connected")
+            return None
+        
         if self.reader_thread is None:
             self.logger.error("Reader thread is not running")
-            raise RuntimeError("Control board reader thread is not running")
+            if require_lock:
+                raise RuntimeError("Control board reader thread is not running")
+            return None
         # Clear any previous move error marker
         try:
             self._move_error.clear()

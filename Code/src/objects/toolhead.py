@@ -16,15 +16,16 @@ class Toolhead():
     def home_axes(self, *axes: str):
         logger = self.control_board.logger
         self._ensure_connected()
-
-        for axis in axes:
-            try:
-                self.control_board.send_message(f"G28 {axis}", require_lock=True)
-                self.control_board.finish_moves()
-                logger.info(f"Homed {axis}; position {axis}={self.get_position(axis)}")
-            except Exception as exc:
-                logger.exception(f"Homing {axis} failed")
-                raise RuntimeError(f"Failed to home {axis} axis") from exc
+        
+        with self.control_board._motion_lock:
+            for axis in axes:
+                try:
+                    self.control_board.send_message(f"G28 {axis}", require_lock=True)
+                    self.control_board.finish_moves()
+                    logger.info(f"Homed {axis}; position {axis}={self.get_position(axis)}")
+                except Exception as exc:
+                    logger.exception(f"Homing {axis} failed")
+                    raise RuntimeError(f"Failed to home {axis} axis") from exc
 
     def home_xy(self):
         self.home_axes("Y", "X")

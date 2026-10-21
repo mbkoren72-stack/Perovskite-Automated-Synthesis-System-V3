@@ -1091,8 +1091,8 @@ class MoveRegistry():
         self.toolhead.move_axis("X", -120, relative=True) #move backwards
     
     def set_pipette(self, target_pipette: int):
-        # Set Position of the plunger before picking up pipette (number needs to be tested first)
-        self.pipette_handler.set_actuator_position(97)
+        # Set Position of the plunger before picking up pipette 
+        self.pipette_handler.set_actuator_position(120)
 
         current_pipette = self.pipette_handler.get_pippete_index()
         self.toolhead.move_axis("Z", 145)

@@ -8,6 +8,8 @@ from .calibration import ArucoCalibrationFrame
 from .procedure_viewer import ProcedureViewerFrame
 from .procedure_builder import ProcedureBuilderFrame
 
+from .full_cycle_frame import FullCycleFrame
+
 class TabViewFrame(ctk.CTkFrame):
     """Shell for managing ___, ___, and ____ tabs"""
     def __init__(self, master, dispatcher, move_registry, procedure_handler, **kwargs):
@@ -64,7 +66,19 @@ class TabViewFrame(ctk.CTkFrame):
         )
         self.aruco_calibration_frame.grid(row = 0, column = 0, padx = 0, pady = 0, sticky = "nsew")
         self.aruco_calibration_frame.grid_remove()
-
+        
+        # Initialize the Full Cycle GUI for automated synthesis
+        self.full_cycle_frame = FullCycleFrame(master=self)
+        # Position the frame in the same area as the other tabs
+        self.full_cycle_frame.grid(
+            row=0,
+            column=0,
+            padx=0,
+            pady=0,
+            sticky="nsew"
+        )
+        # Keep the frame hidden until the Full Cycle tab is selected
+        self.full_cycle_frame.grid_remove()
         self.procedure_builder_frame.queue_frame = self.procedure_viewer_frame.procedure_queue_frame
 
         # Dictionary so the goto_tab correctly maps a tab with its frame. 
@@ -74,7 +88,8 @@ class TabViewFrame(ctk.CTkFrame):
             "procedure_viewer": self.procedure_viewer_frame,
             "file_manager": self.file_manager_frame,
             "settings": self.settings_frame,
-            "aruco_calibration": self.aruco_calibration_frame
+            "aruco_calibration": self.aruco_calibration_frame,
+            "full_cycle": self.full_cycle_frame
         }
 
         self.current_tab_name = "file_manager" 

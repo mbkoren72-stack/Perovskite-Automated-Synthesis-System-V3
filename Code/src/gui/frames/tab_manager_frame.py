@@ -18,7 +18,7 @@ class TabManagerFrame(ctk.CTkFrame):
 
         self.current_tab = "file_manager"
 
-        self.rowconfigure(3, weight = 1)
+        self.rowconfigure(4, weight = 1)
         self.columnconfigure(0, weight = 0)
         # Define all Tab Icons
         self.unselected_file_image = self.path_to_ctk_image("gui/icons/unselected_file.png")
@@ -94,9 +94,30 @@ class TabManagerFrame(ctk.CTkFrame):
             text = "",
             command = lambda: self.controller.switch_tab("settings") 
         )
-        self.settings_tab_button.grid(row = 4, column = 0, padx = 0, pady = 0, sticky = "sew")
+        self.settings_tab_button.grid(row = 5, column = 0, padx = 0, pady = 0, sticky = "sew")
         self.frame_image_bindings(self.settings_tab_button, self.unselected_settings_image, self.selected_settings_image) #Binds the hover actions to file icon replacement
-        
+
+        # Full Cycle tab button, add icons later 
+        self.full_cycle_tab_button = ctk.CTkButton(
+            master = self,
+            width = 70,
+            height = 70,
+            corner_radius = 0,
+            fg_color = FOREGROUND_COLOR,
+            hover_color = FOREGROUND_COLOR,
+            text = "Full\nCycle",
+            font = ("Arial", 13, "bold"),
+            command = lambda: self.controller.switch_tab("full_cycle")
+        )
+
+        # Place the Full Cycle button under Procedure Viewer
+        self.full_cycle_tab_button.grid(
+            row = 3,
+            column = 0,
+            padx = 0,
+            pady = 0,
+            sticky = "new"
+        )
         # Calibration tab button (ArUco marker calibration)
         self.calibration_tab_button = ctk.CTkButton(
             master = self,
@@ -109,11 +130,17 @@ class TabManagerFrame(ctk.CTkFrame):
             text = "",
             command = lambda: self.controller.switch_tab("aruco_calibration") 
         )
-        self.calibration_tab_button.grid(row = 5, column = 0, padx = 0, pady = 0, sticky = "sew")
+        self.calibration_tab_button.grid(row = 6, column = 0, padx = 0, pady = 0, sticky = "sew")
         self.frame_image_bindings(self.calibration_tab_button, self.unselected_calibration_image, self.selected_calibration_image)
         
         # Binds buttons on bottom to dissapear when tab selection buttons collide
-        self.master.bind("<Configure>",lambda e: self.hide_overlapping_frames(disp_frame = self.procedure_tab_button, hide_frame = self.settings_tab_button))
+        self.master.bind(
+            "<Configure>",
+            lambda e: self.hide_overlapping_frames(
+                disp_frame = self.full_cycle_tab_button,
+                hide_frame = self.settings_tab_button
+            )
+        )
 
         # self.frame_exclusive_color_bindings(self.file_tab_button, self.procedure_tab_button, self.builder_tab_button)
 

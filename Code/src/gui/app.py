@@ -65,52 +65,60 @@ class App(ctk.CTk):
 
 
         
-# Mode selection screen
-self.mode_selection_frame = ctk.CTkFrame(
-    master=self,
-    fg_color=BACKGROUND_COLOR,
-    corner_radius=0
-)
+        # Mode selection screen
+        self.mode_selection_frame = ctk.CTkFrame(
+            master=self,
+            fg_color=BACKGROUND_COLOR,
+            corner_radius=0
+        )
 
-self.mode_selection_frame.place(
-    relx=0, rely=0, relwidth=1, relheight=1
-)
+        self.mode_selection_frame.place(
+            relx=0, rely=0, relwidth=1, relheight=1
+        )
 
-self.experimental_button = ctk.CTkButton(
-    master=self.mode_selection_frame,
-    text="Experimental",
-    width=250,
-    height=80,
-    command=self.open_experimental
-)
-self.experimental_button.place(
-    relx=0.4, rely=0.5, anchor="center"
-)
+        self.experimental_button = ctk.CTkButton(
+            master=self.mode_selection_frame,
+            text="Experimental",
+            width=250,
+            height=80,
+            command=self.open_experimental
+        )
+        self.experimental_button.place(
+            relx=0.4, rely=0.5, anchor="center"
+        )
 
-self.automated_button = ctk.CTkButton(
-    master=self.mode_selection_frame,
-    text="Automated",
-    width=250,
-    height=80,
-    command=self.open_automated
-)
-self.automated_button.place(
-    relx=0.6, rely=0.5, anchor="center"
-)
+        self.automated_button = ctk.CTkButton(
+            master=self.mode_selection_frame,
+            text="Automated",
+            width=250,
+            height=80,
+            command=self.open_automated
+        )
+        self.automated_button.place(
+            relx=0.6, rely=0.5, anchor="center"
+        )
 
-# Blank Automated page
-self.automated_frame = ctk.CTkFrame(
-    master=self,
-    fg_color=BACKGROUND_COLOR,
-    corner_radius=0
-)
+        # Blank Automated page
+        self.automated_frame = ctk.CTkFrame(
+            master=self,
+            fg_color=BACKGROUND_COLOR,
+            corner_radius=0
+        )
 
-self.back_button = ctk.CTkButton(
-    master=self.automated_frame,
-    text="Back",
-    command=self.show_mode_selection
-)
-self.back_button.place(x=20, y=20)
+        self.back_button = ctk.CTkButton(
+            master=self.automated_frame,
+            text="Back",
+            command=self.show_mode_selection
+        )
+        self.back_button.place(x=20, y=20)
+
+        # Back button for Experimental Mode
+        self.experimental_back_button = ctk.CTkButton(
+            master=self,
+            text="Back to Mode Selection",
+            width=180,
+            command=self.show_mode_selection
+        )
 
 
 
@@ -205,43 +213,42 @@ self.back_button.place(x=20, y=20)
 
 
 
-def open_experimental(self):
-    """Open existing GUI on the Procedure Builder tab."""
-    self.mode_selection_frame.place_forget()
-    self.automated_frame.place_forget()
 
-    self.switch_tab("procedure_builder")
+    def open_experimental(self):
+        """Open existing GUI on the Procedure Builder tab."""
+        self.mode_selection_frame.place_forget()
+        self.automated_frame.place_forget()
 
+        self.switch_tab("procedure_builder")
 
-def open_automated(self):
-    """Open blank Automated Mode page."""
-    self.mode_selection_frame.place_forget()
+        self.experimental_back_button.place(
+            relx=0.5, y=10, anchor="n"
+        )
+        self.experimental_back_button.lift()
 
-    self.automated_frame.place(
-        relx=0, rely=0, relwidth=1, relheight=1
-    )
-    self.automated_frame.lift()
+    def open_automated(self):
+        """Open blank Automated Mode page."""
+        self.experimental_back_button.place_forget()
+        self.mode_selection_frame.place_forget()
 
+        self.automated_frame.place(
+            relx=0, rely=0, relwidth=1, relheight=1
+        )
+        self.automated_frame.lift()
 
-def show_mode_selection(self):
-    """Return to the mode selection screen."""
-    self.automated_frame.place_forget()
+    def show_mode_selection(self):
+        """Return to the mode selection screen."""
+        self.experimental_back_button.place_forget()
+        self.automated_frame.place_forget()
 
-    self.mode_selection_frame.place(
-        relx=0, rely=0, relwidth=1, relheight=1
-    )
-    self.mode_selection_frame.lift()
+        self.mode_selection_frame.place(
+            relx=0, rely=0, relwidth=1, relheight=1
+        )
+        self.mode_selection_frame.lift()
 
-
-
-
-
-    
     def switch_tab(self, tab_name):
-        
         self.tab_manager_frame.current_tab = tab_name
-        self.tab_view_frame.goto_tab(tab_name)     
-
+        self.tab_view_frame.goto_tab(tab_name)
 
         
 

@@ -76,14 +76,14 @@ class App(ctk.CTk):
             relx=0, rely=0, relwidth=1, relheight=1
         )
 
-        self.experimental_button = ctk.CTkButton(
+        erimental_button = ctk.CTkButton(
             master=self.mode_selection_frame,
             text="Experimental",
             width=250,
             height=80,
             command=self.open_experimental
         )
-        self.experimental_button.place(
+        erimental_button.place(
             relx=0.4, rely=0.5, anchor="center"
         )
 
@@ -97,6 +97,18 @@ class App(ctk.CTk):
         self.automated_button.place(
             relx=0.6, rely=0.5, anchor="center"
         )
+        # Automated Mode description
+        self.automated_description = ctk.CTkLabel(
+            master=self.mode_selection_frame,
+            text="Execute full cycle perovskite \n synthesis (UNDER CONSTRUCTION).",
+            font=ctk.CTkFont(size=15),
+            text_color="gray30",
+            justify="center"
+        )
+        self.automated_description.place(
+            relx=0.6, rely=0.59, anchor="center"
+        )
+
 
         # Blank Automated page
         self.automated_frame = ctk.CTkFrame(
@@ -223,6 +235,17 @@ class App(ctk.CTk):
 
         self.experimental_back_button.place(
             relx=0.5, y=10, anchor="n"
+        )
+        # Experimental Mode description (tiny
+        self.experimental_description = ctk.CTkLabel(
+            master=self.mode_selection_frame,
+            text="Manually put in each step\n and Testing gantry movements.",
+            font=ctk.CTkFont(size=15),
+            text_color="gray30",
+            justify="center"
+        )
+        self.experimental_description.place(
+            relx=0.4, rely=0.59, anchor="center"
         )
         self.experimental_back_button.lift()
 

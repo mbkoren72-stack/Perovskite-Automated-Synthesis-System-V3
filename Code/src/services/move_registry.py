@@ -1,5 +1,6 @@
 from time import sleep
 from inspect import signature
+import threading
 import logging
 import numpy as np
 import json
@@ -60,6 +61,10 @@ class MoveRegistry():
         self.spectrometer_frame = None
         self.tip_matrix = dispatcher.tip_matrix
         self.slide_matrix = SlideMatrix()
+        
+        # Set by kill(); makes long-running moves (wait, wait_for_temperature)
+        # return early. Cleared by reset_kill().
+        self._abort_event = threading.Event()
         
         ImageProcessor.set_detector()
 
@@ -177,22 +182,25 @@ class MoveRegistry():
         
     def kill(self):
         """Emergency stop for all hardware controlled by the MoveRegistry.
-
+ 
         Attempts to stop motion immediately and unblock any waiting operations.
         """
         self.logger.error("MoveRegistry: Emergency kill invoked")
-        try:
-            if self.dispatcher and hasattr(self.dispatcher, 'notify_emergency_stop'):
-                self.dispatcher.notify_emergency_stop()
-        except Exception as e:
-            self.logger.exception(f"Error while notifying emergency stop listeners: {e}")
-        # Control board
+        self._abort_event.set()
+ 
+        # Stop the gantry first: it is the most time-critical.
         try:
             if self.control_board:
                 self.control_board.kill()
         except Exception as e:
             self.logger.exception(f"Error while killing control board: {e}")
-
+ 
+        try:
+            if self.dispatcher and hasattr(self.dispatcher, 'notify_emergency_stop'):
+                self.dispatcher.notify_emergency_stop()
+        except Exception as e:
+            self.logger.exception(f"Error while notifying emergency stop listeners: {e}")
+ 
         # Spin coater
         try:
             if self.spin_coater:
@@ -200,7 +208,7 @@ class MoveRegistry():
                 self.spin_coater.clear_steps()
         except Exception as e:
             self.logger.exception(f"Error while stopping spin coater: {e}")
-
+ 
         # Gripper: move to a safe/open position rather than detaching servos so
         # future operations can resume without requiring a manual reattach.
         try:
@@ -215,21 +223,21 @@ class MoveRegistry():
                     pass
         except Exception as e:
             self.logger.exception(f"Error while setting gripper to safe state: {e}")
-
+ 
         # Pipette handler: attempt a safe stop if available
         try:
             if self.pipette_handler and hasattr(self.pipette_handler, 'kill'):
                 self.pipette_handler.kill()
         except Exception as e:
             self.logger.exception(f"Error while killing pipette handler: {e}")
-
+ 
         # Ensure control board waiting loops are unblocked
         try:
             if self.control_board and hasattr(self.control_board, 'received_ok'):
                 self.control_board.received_ok.set()
         except Exception:
             pass
-
+ 
         # Unblock spin coater run/wait logic
         try:
             if self.spin_coater and hasattr(self.spin_coater, 'done'):
@@ -241,10 +249,15 @@ class MoveRegistry():
         """ Log the specified message"""
         self.logger.info(message)
 
+    def _check_abort(self):
+        if self._abort_event.is_set():
+            raise RuntimeError("Move aborted by emergency stop")
+
     def wait(self, wait_time_seconds: int):
-        """ Wait for the specified amount of time"""
+        """ Wait for the specified amount of time (returns early on kill)"""
         self.logger.info(f"Waiting for {wait_time_seconds} seconds")
-        sleep(wait_time_seconds)
+        self._abort_event.wait(wait_time_seconds)
+        self._check_abort()
         
     def super_move(self, file_name: str):
         """ Runs a file as a single move"""
@@ -274,7 +287,8 @@ class MoveRegistry():
     def wait_for_temperature(self, target_temperature: int, threshold: int):
         timeout_s = 600
         while abs(self.hotplate.current_temperature_c - target_temperature) > threshold:
-            sleep(1)
+            self._abort_event.wait(1)
+            self._check_abort()
             timeout_s -= 1
             if timeout_s == 0:
                 raise Exception("Hotplate failed to reach temperature in under 600 seconds. Try a larger threshold?")
@@ -1178,16 +1192,21 @@ class MoveRegistry():
         else:
             self.logger.warning(f"Incomplete data for measurement '{measurement_type}'. Skipping.")
 
-    def reset_kill(self):
-        """Reset any kill state on hardware so operations can resume."""
+     def reset_kill(self) -> bool:
+        """Reset any kill state on hardware so operations can resume.
+ 
+        Returns False if the control board could not be re-armed.
+        """
         self.logger.debug("MoveRegistry: resetting kill state on hardware")
+        ok = True
         try:
             if hasattr(self, 'control_board') and self.control_board:
                 if hasattr(self.control_board, 'is_killed') and not self.control_board.is_killed():
                     self.logger.debug("MoveRegistry: control board kill state already clear")
                 elif hasattr(self.control_board, 'reset_kill'):
-                    self.control_board.reset_kill()
+                    ok = self.control_board.reset_kill() is not False
         except Exception as e:
+            ok = False
             self.logger.exception(f"Error while resetting control board kill state: {e}")
         # Ensure spincoater run waits are unblocked so run() doesn't hang
         try:
@@ -1202,6 +1221,10 @@ class MoveRegistry():
                     pass
         except Exception as e:
             self.logger.exception(f"Error while resetting spin coater state: {e}")
+ 
+        if ok:
+            self._abort_event.clear()
+        return ok
         
     def automated_measurement(self):
         """Runs the full spectrometer measurement process."""

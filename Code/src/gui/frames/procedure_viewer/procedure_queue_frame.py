@@ -50,6 +50,7 @@ class ProcedureQueueFrame(ctk.CTkFrame):
         self.procedure_handler = procedure_handler
         self.logger = logging.getLogger("Main Logger")
         self.killed = False
+        self._kill_thread = None
 
         self.steps = []
         self.step_frames = []
@@ -171,12 +172,19 @@ class ProcedureQueueFrame(ctk.CTkFrame):
             self.pause_button.configure(state="normal")
             self.stop_button.configure(state="normal")
             self.import_button.configure(state="disabled")
-
+            
         if self.killed:
-            self.start_button.configure(state="disabled")
-            self.pause_button.configure(state="disabled")
-            self.stop_button.configure(state="disabled")
-            self.kill_button.configure(state="disabled")
+            if self._kill_thread is not None and not self._kill_thread.is_alive():
+                # Kill finished (hardware stopped and re-armed, or failed):
+                # give the controls back so the user can restart.
+                self.killed = False
+                self._kill_thread = None
+                self.kill_button.configure(state="normal", text="Kill")
+            else:
+                self.start_button.configure(state="disabled")
+                self.pause_button.configure(state="disabled")
+                self.stop_button.configure(state="disabled")
+                self.kill_button.configure(state="disabled", text="Killing...")
 
         # Progress
         progress = self.procedure_handler.get_progress()
@@ -207,14 +215,17 @@ class ProcedureQueueFrame(ctk.CTkFrame):
         self.procedure_handler.stop()
 
     def _kill_procedure(self):
+        if self.killed:
+            return
         self.killed = True
-        # Run kill in background to avoid blocking the UI if hardware calls block
-        try:
-            import threading as _threading
-            t = _threading.Thread(target=self.procedure_handler.kill, daemon=True)
-            t.start()
-        except Exception:
-            self.procedure_handler.kill()
+        self.pause_button.configure(text="Pause")
+        # Run kill in background: it waits for the current step to unwind and
+        # for the control board to confirm it is responsive again.
+        import threading as _threading
+        self._kill_thread = _threading.Thread(
+            target=self.procedure_handler.kill, name="KillProcedure", daemon=True
+        )
+        self._kill_thread.start()
 
     # -------------------------
     # IMPORT

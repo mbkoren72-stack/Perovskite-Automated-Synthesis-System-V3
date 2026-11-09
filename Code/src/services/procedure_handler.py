@@ -22,12 +22,17 @@ class ProcedureHandler(threading.Thread):
         
         self.paused = threading.Event()
         self.started = threading.Event()
- 
-        self.procedure_timer = Timer()
-        self.start()
+        # Set while the worker thread is NOT inside a procedure run
+        self.idle = threading.Event()
+        self.idle.set()
+        # Set by kill() so the run loop treats the failing step as an abort
+        self._killed = threading.Event()
 
         self.error_flag = False
         self.error_step_index = None
+         
+        self.procedure_timer = Timer()
+        self.start()
         
         # Configurable minimum step duration (in seconds) to ensure UI updates
         self.min_step_duration = 0.5    
@@ -53,6 +58,7 @@ class ProcedureHandler(threading.Thread):
         while True:
             # wait until user has started procedure
             self.started.wait()
+            self.idle.clear()
             
             self.current_step = 0
             self.error_flag = False
@@ -82,7 +88,10 @@ class ProcedureHandler(threading.Thread):
                     self.move_registry.move_dict[func_name](*func_args)
                     self.logger.debug(f"Step {self.current_step} completed successfully")
                 except Exception as e:
-                    self.logger.error(f"Error in step {self.current_step}: {e}")
+                    if self._killed.is_set():
+                        self.logger.warning(f"Step {self.current_step} aborted by kill")
+                    else:
+                        self.logger.error(f"Error in step {self.current_step}: {e}")
                     self.error_flag = True
                     self.error_step_index = self.current_step
                     break
@@ -110,6 +119,7 @@ class ProcedureHandler(threading.Thread):
             
             self.stop()
             self.logger.debug("Procedure Ended")
+            self.idle.set()
 
     def begin(self):
         """Begin the procedure
@@ -117,12 +127,19 @@ class ProcedureHandler(threading.Thread):
         if not self.procedure:
             self.logger.error("No procedure set")
             return
+         if not self.idle.is_set():
+            self.logger.error("Previous run is still stopping; try again in a moment")
+            return
         # Clear any previous emergency kill state before starting
         try:
             if hasattr(self.move_registry, 'reset_kill'):
-                self.move_registry.reset_kill()
+                if self.move_registry.reset_kill() is False:
+                    self.logger.error("Hardware is not ready after kill; not starting")
+                    return
         except Exception:
             self.logger.exception("Failed to reset kill state on begin")
+            return
+        self._killed.clear()
    
         self.started.set()
         self.paused.clear()
@@ -138,8 +155,14 @@ class ProcedureHandler(threading.Thread):
         self.logger.info("Stopping procedure...")
         
             
-    def kill(self):
-        # Issue emergency stop to all hardware and stop the procedure thread
+    def kill(self, rearm: bool = True, timeout: float = 10.0) -> bool:
+        """Emergency stop: halt all hardware, end the run, then re-arm.
+ 
+        Blocks until the worker thread has left the current step (or
+        `timeout` expires), so call it from a background thread, not the UI.
+        Returns True if the system is ready to run again.
+        """
+        self._killed.set()
         try:
             self.move_registry.kill()
         except Exception:
@@ -147,6 +170,30 @@ class ProcedureHandler(threading.Thread):
         # Ensure the procedure is no longer considered started so it can be restarted
         self.stop()
         self.logger.error("Emergency stop triggered; procedure stopped")
+ 
+        if not self.idle.wait(timeout):
+            self.logger.error(
+                f"Procedure step did not stop within {timeout:.0f}s after kill; "
+                "the system stays killed"
+            )
+            return False
+ 
+        if not rearm:
+            return True
+ 
+        try:
+            ready = self.move_registry.reset_kill() is not False
+        except Exception:
+            self.logger.exception("Failed to re-arm hardware after kill")
+            ready = False
+        if ready:
+            self._killed.clear()
+            self.logger.info("Kill complete; system ready (re-home before running moves)")
+        return ready
+ 
+    def is_busy(self) -> bool:
+        """True while a procedure run is in progress or still unwinding."""
+        return not self.idle.is_set()
 
     def pause(self):
         """Pause the procedure."""

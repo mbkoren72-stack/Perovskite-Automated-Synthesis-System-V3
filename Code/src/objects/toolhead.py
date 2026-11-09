@@ -4,7 +4,7 @@ pp=os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
 sys.path.append(pp)
 
 from drivers.controlboard_driver import ControlBoard
-#lara
+
 class Toolhead():
     def __init__(self, control_board: ControlBoard):
         self.control_board = control_board
@@ -141,6 +141,9 @@ class Toolhead():
                     self.control_board.send_message("G90", require_lock=True)
                 return
             except Exception as e:
+                # Never fall back to per-axis moves after an emergency stop
+                if self.control_board.is_killed():
+                    raise
                 logger.debug(f"Coordinated move failed or incomplete: {e}")
 
         # Fallback or non-coordinated: move axes individually (Z->X->Y)

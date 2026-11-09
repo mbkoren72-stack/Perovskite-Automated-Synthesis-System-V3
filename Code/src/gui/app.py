@@ -25,7 +25,7 @@ class App(ctk.CTk):
         # self.cat_icon_path = os.path.join(self.current_directory, "gui", "icons", "cat.ico")
 
         # Define the window
-        self.title("Perovskite Automated Synthesis System V2")
+        self.title("Perovskite Automated Synthesis System V3")
         # self.iconbitmap(self.cat_icon_path)
         self.geometry("1600x800")
 
@@ -176,7 +176,7 @@ class App(ctk.CTk):
 
             try:
                 if self.procedure_handler:
-                    self.procedure_handler.kill()
+                    self.procedure_handler.kill(rearm=False, timeout=3.0)
             except Exception:
                 logger.exception("Error while killing procedure handler during shutdown")
 

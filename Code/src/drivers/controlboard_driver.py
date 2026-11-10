@@ -30,6 +30,8 @@ class ControlBoard():
         self.relative_positioning_enabled = False
         # Internal event used to signal an emergency stop / kill
         self._kill_event = threading.Event()
+        # True after M112: Marlin is halted and only a reset/power cycle recovers it
+        self._firmware_halted = False
         # Lock to serialize writes to the serial port and avoid interleaved bytes
         self._write_lock = threading.RLock()
         # Lock to prevent moving operations from causeing deadlock
@@ -62,8 +64,11 @@ class ControlBoard():
                 return True
 
             # Use a finite timeout so reads don't block forever and freeze the app
-            self.serial = serial.Serial(port, 115200, timeout=1.0)
+            # write_timeout stops a write from blocking forever if the board
+            # stops draining USB (e.g. after an M112 halt).
+            self.serial = serial.Serial(port, 115200, timeout=1.0, write_timeout=2.0)
             self._kill_event.clear()
+            self._firmware_halted = False
             self._last_move_error_line = None
             self._reset_command_tracking()
             # Start reader thread before sending initialization commands
@@ -157,8 +162,19 @@ class ControlBoard():
         with self._command_state_lock:
             return self._position_update_count
     
-    def kill(self):
-        """Send emergency stop to the control board and unblock waits.
+    def kill(self, full_shutdown: bool = False):
+        """Stop all motion immediately and unblock any waiting threads.
+ 
+        By default this sends M410 (Quickstop). With EMERGENCY_PARSER enabled in
+        Marlin (it is, see Configuration_adv.h) M410 is acted on the instant it
+        is received, even while the firmware is blocked on M400/G28. All planned
+        moves are discarded, but the board stays alive and keeps answering
+        serial, so the system can be re-armed without a power cycle.
+ 
+        full_shutdown=True sends M112 instead. Marlin then calls minkill(),
+        which disables interrupts and loops forever: the board will NOT respond
+        to anything (M999 included) until it is reset or power-cycled. Only use
+        this for a true hardware emergency.
         """
         self.logger.error("Emergency stop requested on control board")
         # Mark kill so other methods can abort early
@@ -170,7 +186,12 @@ class ControlBoard():
         # Try to send the emergency stop command
         try:
             if self.is_connected():
-                self.send_message("M112", require_lock=True)
+                if full_shutdown:
+                    self._firmware_halted = True
+                    self.logger.error("Sending M112: control board will need a reset/power cycle")
+                    self.send_message("M112", require_lock=True)
+                else:
+                    self.send_message("M410", require_lock=True)
         except Exception as e:
             self.logger.exception(f"Failed to send emergency stop: {e}")
 
@@ -273,33 +294,66 @@ class ControlBoard():
         except Exception:
             self.logger.exception("Failed to parse position line")
 
-    def reset_kill(self):
-        """Clears the kill state so operations can resume. Currently Does not function due to Firmware messages not being recieved. This is due to the nature of Kill.
+    def reset_kill(self, timeout: float = 5.0) -> bool:
+        """Re-arm the control board after kill().
+ 
+        Clears the kill flag, then sends M400 and waits for its 'ok' to prove
+        the firmware is alive and its planner is empty. The command counters are
+        deliberately NOT reset: 'ok's for commands sent before the kill may
+        still be in flight, and zeroing the counters would let a late 'ok'
+        satisfy the next finish_moves() before the move has actually finished.
+ 
+        Returns True if the board is ready for motion again.
         """
         try:
             if not self.is_killed():
                 self.logger.debug("Control board kill state already clear")
+                return True
+
+           if getattr(self, '_firmware_halted', False):
+                self.logger.error(
+                    "Control board was stopped with M112 and is halted. "
+                    "Reset or power-cycle it, then reconnect."
+                )
                 return False
 
-            self._kill_event.clear()
-            self._reset_command_tracking()
-            self.logger.debug("Control board kill state cleared")
+            if not self.is_connected():
+                # Nothing to sync with; clearing the flag is enough.
+                self._kill_event.clear()
+                return True
 
-            # If connected, attempt to restart firmware and reload settings
-            if self.is_connected():
-                try:
-                    # Request firmware restart to clear M112 state
-                    self.logger.info("Sending firmware reset (M999) to control board")
-                    self.send_message("M999", require_lock=True)
-                    sleep(0.5)
-                    # Reload stored settings
-                    self.send_message("M501", require_lock=True)
-                    sleep(0.2)
-                except Exception as e:
-                    self.logger.exception(f"Failed to send firmware reset commands: {e}")
+            self._kill_event.clear()
+            try:
+                self._move_error.clear()
+            except Exception:
+                pass
+            self._last_move_error_line = None
+
+            command_id = self.send_message("M400", require_lock=True)
+            if command_id is None:
+                raise RuntimeError("Failed to send M400 while re-arming")
+
+            deadline = time.monotonic() + timeout
+            while self._get_ack_count() < command_id:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Control board did not answer after kill")
+                if not self.is_connected():
+                    raise RuntimeError("Control board disconnected while re-arming")
+                self._ack_event.wait(timeout=0.1)
+                self._ack_event.clear()
+                
+            # Quickstop leaves the axes wherever they stopped; refresh our copy.
+            try:
+                self.request_position(wait=True, timeout=2.0)
+            except Exception as exc:
+                self.logger.warning(f"Could not refresh position after kill: {exc}")
+
+            self.logger.info("Control board re-armed after kill")
             return True
-        except Exception:
-            self.logger.exception("Failed to clear control board kill state")
+        except Exception as e:
+            # Leave the board in the killed state so nothing tries to move it.
+            self._kill_event.set()
+            self.logger.error(f"Failed to re-arm control board: {e}")
             return False
 
     def resume_from_user_pause(self):
@@ -352,7 +406,6 @@ class ControlBoard():
             if require_lock:
                 # For required messages try to acquire the lock with a longer timeout
                 try:
-
                     acquired = self._write_lock.acquire(timeout=5.0)
                 except Exception:
                     acquired = False
@@ -463,8 +516,6 @@ class ControlBoard():
                 )
 
     def finish_moves(self):
-
-
         """Waits for the move to finish"""
         if not self.is_connected():
             self.logger.error("Serial is not connected")

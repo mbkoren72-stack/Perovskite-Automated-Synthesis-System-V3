@@ -1192,7 +1192,7 @@ class MoveRegistry():
         else:
             self.logger.warning(f"Incomplete data for measurement '{measurement_type}'. Skipping.")
 
-     def reset_kill(self) -> bool:
+    def reset_kill(self) -> bool:
         """Reset any kill state on hardware so operations can resume.
  
         Returns False if the control board could not be re-armed.

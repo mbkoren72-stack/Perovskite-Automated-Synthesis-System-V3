@@ -127,7 +127,7 @@ class ProcedureHandler(threading.Thread):
         if not self.procedure:
             self.logger.error("No procedure set")
             return
-         if not self.idle.is_set():
+        if not self.idle.is_set():
             self.logger.error("Previous run is still stopping; try again in a moment")
             return
         # Clear any previous emergency kill state before starting

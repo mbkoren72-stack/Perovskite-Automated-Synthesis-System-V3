@@ -310,7 +310,7 @@ class ControlBoard():
                 self.logger.debug("Control board kill state already clear")
                 return True
 
-           if getattr(self, '_firmware_halted', False):
+            if getattr(self, '_firmware_halted', False):
                 self.logger.error(
                     "Control board was stopped with M112 and is halted. "
                     "Reset or power-cycle it, then reconnect."
